@@ -104,12 +104,24 @@ class VerilogGenerator:
         """Call LLM API. Selects backend based on available keys. Falls back to mock."""
         resolved = self._resolve_backend()
         if resolved == "openai":
-            raw = self._call_openai(system_prompt, user_prompt)
+            try:
+                raw = self._call_openai(system_prompt, user_prompt)
+                return self._strip_fences(raw)
+            except RuntimeError:
+                if self.backend != "openai":
+                    # Auto-resolved — fall back to mock
+                    return self._mock_response(user_prompt)
+                raise
         elif resolved == "anthropic":
-            raw = self._call_anthropic(system_prompt, user_prompt)
-        else:
-            return self._mock_response(user_prompt)
-        return self._strip_fences(raw)
+            try:
+                raw = self._call_anthropic(system_prompt, user_prompt)
+                return self._strip_fences(raw)
+            except RuntimeError:
+                if self.backend != "anthropic":
+                    # Auto-resolved — fall back to mock
+                    return self._mock_response(user_prompt)
+                raise
+        return self._mock_response(user_prompt)
 
     def _resolve_backend(self) -> str:
         """Pick the active backend: explicit choice > env key availability > mock."""

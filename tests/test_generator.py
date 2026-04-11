@@ -52,8 +52,15 @@ class TestConfigPath:
 class TestMockResponse:
     """Test mock mode generates correct module names and ports."""
 
-    def test_mock_uses_module_name(self):
+    def _mock_gen(self):
+        """Create a generator guaranteed to use mock mode."""
         gen = VerilogGenerator(backend="auto")
+        gen.openai_key = None
+        gen.anthropic_key = None
+        return gen
+
+    def test_mock_uses_module_name(self):
+        gen = self._mock_gen()
         result = gen.generate_module(
             description="test module",
             module_name="my_counter",
@@ -63,7 +70,7 @@ class TestMockResponse:
         assert "module my_counter" in result
 
     def test_mock_uses_custom_ports(self):
-        gen = VerilogGenerator(backend="auto")
+        gen = self._mock_gen()
         result = gen.generate_module(
             description="test",
             module_name="test_mod",
@@ -74,7 +81,7 @@ class TestMockResponse:
         assert "data_out" in result
 
     def test_mock_returns_valid_verilog(self):
-        gen = VerilogGenerator(backend="auto")
+        gen = self._mock_gen()
         result = gen.generate_module(
             description="simple test",
             module_name="dff",
