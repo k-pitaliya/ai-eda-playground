@@ -31,12 +31,16 @@ class VerilogGenerator:
         backend: LLMBackend = "auto",
         openai_key: str | None = None,
         anthropic_key: str | None = None,
+        openai_base_url: str | None = None,
+        openai_model: str | None = None,
     ):
         resolved_path = Path(config_path) if config_path else _DEFAULT_CONFIG
         self.config = self._load_config(resolved_path)
         self.backend = backend
         self.openai_key = openai_key or os.getenv("OPENAI_API_KEY")
         self.anthropic_key = anthropic_key or os.getenv("ANTHROPIC_API_KEY")
+        self.openai_base_url = openai_base_url or os.getenv("OPENAI_BASE_URL")
+        self.openai_model = openai_model or os.getenv("OPENAI_MODEL", "gpt-4")
         # Lazy-initialised LLM clients (created once, reused across calls)
         self._openai_client = None
         self._anthropic_client = None
@@ -141,9 +145,12 @@ class VerilogGenerator:
             from openai import OpenAI
 
             if self._openai_client is None:
-                self._openai_client = OpenAI(api_key=self.openai_key)
+                kwargs = {"api_key": self.openai_key}
+                if self.openai_base_url:
+                    kwargs["base_url"] = self.openai_base_url
+                self._openai_client = OpenAI(**kwargs)
             response = self._openai_client.chat.completions.create(
-                model="gpt-4",
+                model=self.openai_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},

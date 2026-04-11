@@ -31,11 +31,16 @@ def cli():
     show_default=True,
     help="LLM backend (auto picks from available API keys)",
 )
-def generate(description: str, name: str, inputs: tuple, outputs: tuple, backend: str):
+@click.option("--base-url", default=None, envvar="OPENAI_BASE_URL",
+              help="Custom OpenAI-compatible API base URL (e.g. https://openrouter.ai/api/v1)")
+@click.option("--model", "-m", default=None, envvar="OPENAI_MODEL",
+              help="Model name for OpenAI backend (default: gpt-4)")
+def generate(description: str, name: str, inputs: tuple, outputs: tuple,
+             backend: str, base_url: str | None, model: str | None):
     """Generate and verify a Verilog module from a description."""
     console.print(Panel(f"[bold cyan]Generating:[/] {description}", title="AI-EDA Playground"))
 
-    pipeline = EDA_Pipeline(backend=backend)
+    pipeline = EDA_Pipeline(backend=backend, openai_base_url=base_url, openai_model=model)
     result = pipeline.run(
         description=description,
         module_name=name,
@@ -92,6 +97,13 @@ def check():
         console.print("[green]✅ ANTHROPIC_API_KEY is set[/]")
     else:
         console.print("[yellow]⚠️  ANTHROPIC_API_KEY not set[/]")
+
+    base_url = os.getenv("OPENAI_BASE_URL")
+    if base_url:
+        console.print(f"[green]✅ OPENAI_BASE_URL = {base_url}[/]")
+    model = os.getenv("OPENAI_MODEL")
+    if model:
+        console.print(f"[green]✅ OPENAI_MODEL = {model}[/]")
 
 
 @cli.command()

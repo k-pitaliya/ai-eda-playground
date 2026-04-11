@@ -85,11 +85,15 @@ class EDA_Pipeline:
         backend: str = "auto",
         openai_key: str | None = None,
         anthropic_key: str | None = None,
+        openai_base_url: str | None = None,
+        openai_model: str | None = None,
     ):
         self.generator = VerilogGenerator(
             backend=backend,
             openai_key=openai_key,
             anthropic_key=anthropic_key,
+            openai_base_url=openai_base_url,
+            openai_model=openai_model,
         )
 
     def run(

@@ -35,6 +35,7 @@ Natural Language Description
 
 - **LLM-Powered Verilog Generation** — Describe what you want in plain English, get synthesizable RTL
 - **Dual LLM Backends** — Supports both OpenAI (GPT-4) and Anthropic (Claude), with auto-detection
+- **OpenRouter / Custom API Support** — Use any OpenAI-compatible endpoint (OpenRouter, Ollama, vLLM, etc.)
 - **Automatic Testbench Creation** — Comprehensive testbenches with clock gen, reset, directed tests, and assertions
 - **Icarus Verilog Simulation** — Compile and simulate entirely from the CLI or Web UI
 - **Autonomous Bug Correction Loop** — AI classifies errors, tracks correction history, and iteratively fixes the RTL (up to 3 attempts)
@@ -94,6 +95,30 @@ python -m src.cli generate "4-bit up counter with enable" \
 # View VCD waveforms in the terminal
 python -m src.cli waveform path/to/dump.vcd
 ```
+
+### Using OpenRouter or Custom API Endpoints
+
+The tool works with any OpenAI-compatible API via `--base-url` and `--model`:
+
+```bash
+# Set env vars (or pass via CLI flags)
+export OPENAI_API_KEY="sk-or-v1-..."
+export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
+
+# Use a free model on OpenRouter
+python -m src.cli generate "4-bit counter" \
+  -n cnt4 -i clk -i rst_n -o "count[3:0]" \
+  --backend openai \
+  --model "google/gemma-4-26b-a4b-it:free"
+
+# Or use CLI flags directly
+python -m src.cli generate "D flip-flop" \
+  --backend openai \
+  --base-url "https://openrouter.ai/api/v1" \
+  --model "openai/gpt-4"
+```
+
+Env vars: `OPENAI_BASE_URL`, `OPENAI_MODEL`, `OPENAI_API_KEY`
 
 ---
 

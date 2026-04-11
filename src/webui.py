@@ -30,6 +30,8 @@ def run_pipeline(
     backend: str,
     openai_key: str,
     anthropic_key: str,
+    base_url: str = "",
+    model_name: str = "",
 ) -> tuple[str, str, str, str, str]:
     """
     Run the full generate→simulate→correct pipeline.
@@ -42,6 +44,8 @@ def run_pipeline(
     # Pass API keys directly to the pipeline (no os.environ mutation)
     oai_key = openai_key.strip() or None
     ant_key = anthropic_key.strip() or None
+    oai_base_url = base_url.strip() or None
+    oai_model = model_name.strip() or None
 
     inputs = _parse_ports(inputs_raw) or ["clk", "rst_n"]
     outputs = _parse_ports(outputs_raw) or ["out"]
@@ -52,6 +56,8 @@ def run_pipeline(
             backend=backend,
             openai_key=oai_key,
             anthropic_key=ant_key,
+            openai_base_url=oai_base_url,
+            openai_model=oai_model,
         )
         result: PipelineResult = pipeline.run(
             description=description,
@@ -163,7 +169,7 @@ design, testbench, and simulate it — correcting bugs automatically if needed.
                 )
                 openai_key = gr.Textbox(
                     label="🔑 OpenAI API Key",
-                    placeholder="sk-… (optional)",
+                    placeholder="sk-… (optional, also works with OpenRouter keys)",
                     type="password",
                     lines=1,
                 )
@@ -173,6 +179,17 @@ design, testbench, and simulate it — correcting bugs automatically if needed.
                     type="password",
                     lines=1,
                 )
+                with gr.Accordion("🔧 Advanced (OpenRouter / Custom API)", open=False):
+                    base_url = gr.Textbox(
+                        label="Base URL",
+                        placeholder="https://openrouter.ai/api/v1",
+                        lines=1,
+                    )
+                    model_name = gr.Textbox(
+                        label="Model Name",
+                        placeholder="e.g. google/gemma-4-26b-a4b-it:free",
+                        lines=1,
+                    )
                 gr.Markdown(
                     "_Leave keys blank to run in **mock mode** (no API needed)._"
                 )
@@ -253,7 +270,7 @@ design, testbench, and simulate it — correcting bugs automatically if needed.
         # ── Wire up generate button ───────────────────────────────────────────
         generate_btn.click(
             fn=run_pipeline,
-            inputs=[description, module_name, inputs_raw, outputs_raw, backend, openai_key, anthropic_key],
+            inputs=[description, module_name, inputs_raw, outputs_raw, backend, openai_key, anthropic_key, base_url, model_name],
             outputs=[status_md, module_out, tb_out, sim_out, wave_out],
         )
 
