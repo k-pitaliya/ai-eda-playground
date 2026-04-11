@@ -1,0 +1,10 @@
+# Example: 4-bit counter with enable and reset
+description: "4-bit synchronous up counter with enable and active-low reset"
+module_name: counter_4bit
+inputs:
+  - clk
+  - rst_n
+  - enable
+outputs:
+  - "count[3:0]"
+requirements: "Count should increment on each rising clock edge when enable is high. Reset to 0 on active-low reset."

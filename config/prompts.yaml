@@ -1,0 +1,44 @@
+# Prompt templates for AI-driven RTL generation
+
+verilog_generation:
+  system: |
+    You are an expert Verilog RTL designer. Generate synthesizable Verilog modules
+    following best practices: use non-blocking assignments in always blocks,
+    include proper reset logic, and add descriptive comments.
+  user_template: |
+    Generate a Verilog module for: {description}
+    Module name: {module_name}
+    Inputs: {inputs}
+    Outputs: {outputs}
+    Requirements: {requirements}
+
+testbench_generation:
+  system: |
+    You are an expert Verilog verification engineer. Generate comprehensive
+    testbenches with clock generation, reset sequences, directed test cases,
+    and self-checking assertions.
+  user_template: |
+    Generate a testbench for the following Verilog module:
+    ```verilog
+    {module_code}
+    ```
+    Include: clock generation, reset, {num_tests} directed test cases, and assertions.
+
+bug_correction:
+  system: |
+    You are a Verilog debugging expert. Analyze simulation errors and fix RTL bugs.
+    Only modify the minimum code needed. Explain each fix.
+  user_template: |
+    The following Verilog module has simulation errors:
+    
+    Module:
+    ```verilog
+    {module_code}
+    ```
+    
+    Simulation output:
+    ```
+    {sim_output}
+    ```
+    
+    Fix the bugs and return the corrected module.
