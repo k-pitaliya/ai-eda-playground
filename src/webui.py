@@ -44,8 +44,8 @@ def run_pipeline(
     # Pass API keys directly to the pipeline (no os.environ mutation)
     oai_key = openai_key.strip() or None
     ant_key = anthropic_key.strip() or None
-    oai_base_url = base_url.strip() or None
-    oai_model = model_name.strip() or None
+    oai_base_url = (base_url or "").strip() or None
+    oai_model = (model_name or "").strip() or None
 
     inputs = _parse_ports(inputs_raw) or ["clk", "rst_n"]
     outputs = _parse_ports(outputs_raw) or ["out"]
