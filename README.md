@@ -34,9 +34,12 @@ Natural Language Description
 ## Features
 
 - **LLM-Powered Verilog Generation** — Describe what you want in plain English, get synthesizable RTL
+- **Dual LLM Backends** — Supports both OpenAI (GPT-4) and Anthropic (Claude), with auto-detection
 - **Automatic Testbench Creation** — Comprehensive testbenches with clock gen, reset, directed tests, and assertions
-- **Icarus Verilog Simulation** — Compile and simulate entirely from the CLI
-- **Autonomous Bug Correction Loop** — AI analyzes simulation failures and iteratively fixes the RTL (up to 3 attempts)
+- **Icarus Verilog Simulation** — Compile and simulate entirely from the CLI or Web UI
+- **Autonomous Bug Correction Loop** — AI classifies errors, tracks correction history, and iteratively fixes the RTL (up to 3 attempts)
+- **VCD Waveform Viewer** — ASCII (terminal) and SVG (browser) waveform rendering from VCD files
+- **Gradio Web UI** — Full browser-based interface with example presets and tabbed output
 - **YAML-Based Prompt Templates** — Easily customize the AI prompts in `config/prompts.yaml`
 - **Rich CLI Output** — Syntax-highlighted Verilog output with status reporting
 
@@ -48,30 +51,48 @@ Natural Language Description
 
 - Python 3.11+
 - [Icarus Verilog](http://iverilog.icarus.com/) (`brew install icarus-verilog` on macOS)
-- An OpenAI API key (optional — runs in mock mode without one)
+- An OpenAI or Anthropic API key (optional — runs in mock mode without one)
 
 ### Installation
 
 ```bash
 git clone https://github.com/KushalPitaliya/ai-eda-playground.git
 cd ai-eda-playground
+
+# Using venv (recommended)
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# Optional: set your OpenAI API key
+# Or install as a package
+pip install -e ".[all]"
+
+# Optional: set your API keys
 export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 ### Usage
 
 ```bash
-# Check that Icarus Verilog is installed
+# Check that tools and API keys are configured
 python -m src.cli check
 
+# ── Web UI (recommended) ──────────────────────────────────────────────────────
+./launch_ui.sh                    # opens browser at http://127.0.0.1:7860
+# or
+python -m src.cli webui
+
+# ── CLI ───────────────────────────────────────────────────────────────────────
 # Generate a Verilog module from a description
 python -m src.cli generate "4-bit up counter with enable" \
   --name counter_4bit \
   -i clk -i rst_n -i enable \
-  -o "count[3:0]"
+  -o "count[3:0]" \
+  --backend auto
+
+# View VCD waveforms in the terminal
+python -m src.cli waveform path/to/dump.vcd
 ```
 
 ---
@@ -81,16 +102,27 @@ python -m src.cli generate "4-bit up counter with enable" \
 ```
 ai-eda-playground/
 ├── config/
-│   └── prompts.yaml          # AI prompt templates
+│   └── prompts.yaml           # AI prompt templates (generation, testbench, correction)
 ├── examples/
 │   └── counter.yaml           # Example module specification
 ├── src/
 │   ├── __init__.py
-│   ├── generator.py           # LLM-powered Verilog generator
-│   ├── simulator.py           # Icarus Verilog compile & simulate
+│   ├── __main__.py            # python -m src entry point
+│   ├── cli.py                 # CLI interface (Click + Rich)
+│   ├── generator.py           # LLM-powered Verilog generator (OpenAI + Anthropic)
+│   ├── simulator.py           # Icarus Verilog compile & simulate runner
 │   ├── pipeline.py            # Generate → Simulate → Correct orchestrator
-│   └── cli.py                 # CLI interface (Click + Rich)
-├── requirements.txt
+│   ├── waveform.py            # VCD waveform viewer (ASCII + SVG)
+│   └── webui.py               # Gradio Web UI
+├── tests/
+│   ├── conftest.py            # Shared fixtures
+│   ├── test_generator.py      # Generator unit tests
+│   ├── test_simulator.py      # Simulator unit tests
+│   ├── test_waveform.py       # Waveform renderer tests
+│   └── test_pipeline.py       # Pipeline integration tests
+├── pyproject.toml             # PEP 621 project metadata + packaging
+├── requirements.txt           # Pinned dependencies
+├── launch_ui.sh               # One-command Web UI launcher
 ├── LICENSE
 └── README.md
 ```
@@ -98,8 +130,6 @@ ai-eda-playground/
 ---
 
 ## Example
-
-Using the included counter example (`examples/counter.yaml`):
 
 ```bash
 python -m src.cli generate \
@@ -118,10 +148,21 @@ The pipeline will:
 
 ---
 
+## Running Tests
+
+```bash
+# From the project root
+python -m pytest tests/ -v
+```
+
+---
+
 ## Roadmap
 
-- [ ] Web frontend (Next.js)
-- [ ] Waveform viewer integration
+- [x] Gradio Web UI
+- [x] VCD Waveform Viewer (ASCII + SVG)
+- [x] Anthropic/Claude backend support
+- [x] Structured bug correction with error classification
 - [ ] Multi-file project support
 - [ ] Synthesis targeting (Yosys)
 - [ ] SystemVerilog support

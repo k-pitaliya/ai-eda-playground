@@ -5,7 +5,6 @@ Author: Kushal Pitaliya
 """
 
 import subprocess
-import tempfile
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -27,17 +26,32 @@ class Simulator:
     VVP = "vvp"
 
     def __init__(self, work_dir: str | None = None):
-        self.work_dir = Path(work_dir) if work_dir else Path(tempfile.mkdtemp())
-        self.work_dir.mkdir(parents=True, exist_ok=True)
+        if work_dir:
+            self.work_dir = Path(work_dir)
+            self.work_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            self.work_dir = Path(".")
 
     def compile(self, *verilog_files: str, output: str = "sim.vvp") -> SimResult:
         """Compile Verilog files with Icarus Verilog."""
         out_path = self.work_dir / output
         cmd = [self.IVERILOG, "-g2012", "-o", str(out_path)] + list(verilog_files)
 
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=30
-        )
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30
+            )
+        except subprocess.TimeoutExpired:
+            return SimResult(
+                success=False, stdout="",
+                stderr="Compilation timed out (30s limit)", return_code=-1,
+            )
+        except FileNotFoundError:
+            return SimResult(
+                success=False, stdout="",
+                stderr=f"iverilog not found. Install: brew install icarus-verilog",
+                return_code=-1,
+            )
         return SimResult(
             success=result.returncode == 0,
             stdout=result.stdout,
@@ -51,13 +65,25 @@ class Simulator:
         if not vvp_path.exists():
             return SimResult(success=False, stdout="", stderr="VVP file not found")
 
-        result = subprocess.run(
-            [self.VVP, str(vvp_path)],
-            capture_output=True,
-            text=True,
-            cwd=str(self.work_dir),
-            timeout=60,
-        )
+        try:
+            result = subprocess.run(
+                [self.VVP, str(vvp_path)],
+                capture_output=True,
+                text=True,
+                cwd=str(self.work_dir),
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            return SimResult(
+                success=False, stdout="",
+                stderr="Simulation timed out (60s limit)", return_code=-1,
+            )
+        except FileNotFoundError:
+            return SimResult(
+                success=False, stdout="",
+                stderr="vvp not found. Install: brew install icarus-verilog",
+                return_code=-1,
+            )
 
         vcd_files = list(self.work_dir.glob("*.vcd"))
         vcd_path = str(vcd_files[0]) if vcd_files else None

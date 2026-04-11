@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-eda-playground"
+version = "0.1.0"
+description = "AI-driven EDA: Natural Language → Verilog → Simulation"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "Kushal Pitaliya"},
+]
+keywords = ["verilog", "eda", "ai", "llm", "rtl", "fpga"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = [
+    "openai>=1.0.0",
+    "anthropic>=0.20.0",
+    "pyyaml>=6.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+ui = ["gradio>=4.0.0"]
+waveform = ["vcdvcd>=2.0.0"]
+dev = [
+    "pytest>=7.0.0",
+    "gradio>=4.0.0",
+    "vcdvcd>=2.0.0",
+]
+all = [
+    "gradio>=4.0.0",
+    "vcdvcd>=2.0.0",
+    "pytest>=7.0.0",
+]
+
+[project.scripts]
+ai-eda = "src.cli:cli"
+
+[project.urls]
+Homepage = "https://github.com/KushalPitaliya/ai-eda-playground"
+Repository = "https://github.com/KushalPitaliya/ai-eda-playground"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.setuptools.package-data]
+"src" = ["config/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
