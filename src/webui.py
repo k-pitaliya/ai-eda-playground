@@ -17,8 +17,10 @@ from .waveform import vcd_to_svg, parse_vcd
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _parse_ports(raw: str) -> list[str]:
+def _parse_ports(raw: str | None) -> list[str]:
     """Split a comma-separated port string into a cleaned list."""
+    if not raw:
+        return []
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
@@ -39,18 +41,18 @@ def run_pipeline(
     """
     no_wave = "<p><em>No waveform — run a simulation first.</em></p>"
     no_synth = "_No synthesis data — Yosys may not be installed._"
-    if not description.strip():
+    if not (description or "").strip():
         return "⚠️ Please enter a module description.", "", "", "", no_wave, no_synth
 
     # Pass API keys directly to the pipeline (no os.environ mutation)
-    oai_key = openai_key.strip() or None
-    ant_key = anthropic_key.strip() or None
+    oai_key = (openai_key or "").strip() or None
+    ant_key = (anthropic_key or "").strip() or None
     oai_base_url = (base_url or "").strip() or None
     oai_model = (model_name or "").strip() or None
 
     inputs = _parse_ports(inputs_raw) or ["clk", "rst_n"]
     outputs = _parse_ports(outputs_raw) or ["out"]
-    name = module_name.strip() or "generated_module"
+    name = (module_name or "").strip() or "generated_module"
 
     try:
         pipeline = EDA_Pipeline(
@@ -146,16 +148,16 @@ def run_multimodule_pipeline(
     """
     no_wave = "<p><em>No waveform — run a simulation first.</em></p>"
     no_synth = "_No synthesis data — Yosys may not be installed._"
-    if not description.strip():
+    if not (description or "").strip():
         return "⚠️ Please enter a module description.", "", "", "", no_wave, no_synth
 
-    oai_key = openai_key.strip() or None
-    ant_key = anthropic_key.strip() or None
+    oai_key = (openai_key or "").strip() or None
+    ant_key = (anthropic_key or "").strip() or None
     oai_base_url = (base_url or "").strip() or None
     oai_model = (model_name or "").strip() or None
-    name = module_name.strip() or "top_module"
-    inputs = _parse_ports(inputs_raw)
-    outputs = _parse_ports(outputs_raw)
+    name = (module_name or "").strip() or "top_module"
+    inputs = _parse_ports(inputs_raw) or ["a", "b"]
+    outputs = _parse_ports(outputs_raw) or ["out"]
 
     try:
         pipeline = EDA_Pipeline(

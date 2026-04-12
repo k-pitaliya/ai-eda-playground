@@ -41,6 +41,7 @@ class VerilogGenerator:
         self.anthropic_key = anthropic_key or os.getenv("ANTHROPIC_API_KEY")
         self.openai_base_url = openai_base_url or os.getenv("OPENAI_BASE_URL")
         self.openai_model = openai_model or os.getenv("OPENAI_MODEL", "gpt-4")
+        self.anthropic_model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5")
         # Lazy-initialised LLM clients (created once, reused across calls)
         self._openai_client = None
         self._anthropic_client = None
@@ -237,7 +238,7 @@ class VerilogGenerator:
             if self._anthropic_client is None:
                 self._anthropic_client = anthropic.Anthropic(api_key=self.anthropic_key)
             response = self._anthropic_client.messages.create(
-                model="claude-sonnet-4-5",
+                model=self.anthropic_model,
                 max_tokens=2000,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],

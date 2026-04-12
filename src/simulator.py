@@ -107,7 +107,7 @@ class Simulator:
         """Check if Icarus Verilog is available."""
         try:
             subprocess.run(
-                [self.IVERILOG, "--version"],
+                [self.IVERILOG, "-V"],
                 capture_output=True,
                 timeout=5,
             )
