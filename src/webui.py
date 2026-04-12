@@ -106,13 +106,13 @@ def run_pipeline(
         synth_lines = [
             f"**Top module:** `{sr.top_module or '(auto)'}`",
             f"**Gates:** {sr.gate_count}",
-            f"**Cells:** {sr.stats.get('num_cells', 'N/A')}",
-            f"**Wires:** {sr.stats.get('num_wires', 'N/A')} ({sr.stats.get('num_wire_bits', '?')} bits)",
+            f"**Cells:** {sr.num_cells}",
+            f"**Wires:** {sr.num_wires} ({sr.num_wire_bits} bits)",
             "",
             "| Cell Type | Count |",
             "|-----------|-------|",
         ]
-        for ct, cnt in sorted(sr.cells_by_type.items()):
+        for ct, cnt in sorted(sr.cell_types.items()):
             synth_lines.append(f"| `{ct}` | {cnt} |")
         synth_md = "\n".join(synth_lines)
     elif result.synth_result and not result.synth_result.success:
@@ -121,6 +121,121 @@ def run_pipeline(
     return (
         "\n".join(lines),
         result.module_code,
+        result.testbench_code,
+        result.sim_output or "(no simulation output)",
+        wave_html,
+        synth_md,
+    )
+
+
+def run_multimodule_pipeline(
+    description: str,
+    module_name: str,
+    inputs_raw: str,
+    outputs_raw: str,
+    submodules_hint: str,
+    backend: str,
+    openai_key: str,
+    anthropic_key: str,
+    base_url: str = "",
+    model_name: str = "",
+) -> tuple[str, str, str, str, str, str]:
+    """
+    Run the multi-module generate→simulate→correct pipeline.
+    Returns: (status_md, module_verilog, testbench_verilog, sim_output, waveform_svg, synth_md)
+    """
+    no_wave = "<p><em>No waveform — run a simulation first.</em></p>"
+    no_synth = "_No synthesis data — Yosys may not be installed._"
+    if not description.strip():
+        return "⚠️ Please enter a module description.", "", "", "", no_wave, no_synth
+
+    oai_key = openai_key.strip() or None
+    ant_key = anthropic_key.strip() or None
+    oai_base_url = (base_url or "").strip() or None
+    oai_model = (model_name or "").strip() or None
+    name = module_name.strip() or "top_module"
+    inputs = _parse_ports(inputs_raw)
+    outputs = _parse_ports(outputs_raw)
+
+    try:
+        pipeline = EDA_Pipeline(
+            backend=backend,
+            openai_key=oai_key,
+            anthropic_key=ant_key,
+            openai_base_url=oai_base_url,
+            openai_model=oai_model,
+        )
+        result: PipelineResult = pipeline.run_multimodule(
+            description=description,
+            module_name=name,
+            inputs=inputs,
+            outputs=outputs,
+            submodules=(submodules_hint or "").strip(),
+        )
+    except Exception as e:
+        return f"❌ Pipeline error: {e}", "", "", "", no_wave, no_synth
+
+    # Build status markdown
+    status_icon = "✅ Success" if result.success else "❌ Failed"
+    active_backend = pipeline.generator._resolve_backend()
+    lines = [
+        f"## {status_icon}",
+        f"**Backend used:** `{active_backend}`",
+        f"**Iterations:** {result.iterations}",
+    ]
+    if result.module_files:
+        lines.append(f"**Modules:** {', '.join(result.module_files.keys())}")
+    if result.corrections:
+        lines.append("\n**Auto-corrections applied:**")
+        for c in result.corrections:
+            lines.append(f"- {c}")
+
+    # Build combined module code display
+    if result.module_files:
+        module_display = "\n\n".join(
+            f"// ── {mod_name}.v ──\n{mod_code}"
+            for mod_name, mod_code in result.module_files.items()
+        )
+    else:
+        module_display = result.module_code
+
+    # Waveform
+    wave_html = no_wave
+    if result.vcd_content:
+        try:
+            import tempfile as _tf
+            with _tf.NamedTemporaryFile(suffix=".vcd", mode="w", delete=False) as vf:
+                vf.write(result.vcd_content)
+                vf.flush()
+                svg = vcd_to_svg(vf.name)
+            import os
+            os.unlink(vf.name)
+            wave_html = f'<div style="overflow-x:auto;padding:8px;">{svg}</div>'
+        except Exception as e:
+            wave_html = f"<p><em>Waveform error: {e}</em></p>"
+
+    # Synthesis
+    synth_md = no_synth
+    if result.synth_result and result.synth_result.success:
+        sr = result.synth_result
+        synth_lines = [
+            f"**Top module:** `{sr.top_module or '(auto)'}`",
+            f"**Gates:** {sr.gate_count}",
+            f"**Cells:** {sr.num_cells}",
+            f"**Wires:** {sr.num_wires} ({sr.num_wire_bits} bits)",
+            "",
+            "| Cell Type | Count |",
+            "|-----------|-------|",
+        ]
+        for ct, cnt in sorted(sr.cell_types.items()):
+            synth_lines.append(f"| `{ct}` | {cnt} |")
+        synth_md = "\n".join(synth_lines)
+    elif result.synth_result and not result.synth_result.success:
+        synth_md = f"_Synthesis failed:_ `{result.synth_result.stderr[:200]}`"
+
+    return (
+        "\n".join(lines),
+        module_display,
         result.testbench_code,
         result.sim_output or "(no simulation output)",
         wave_html,
@@ -216,6 +331,41 @@ design, testbench, and simulate it — correcting bugs automatically if needed.
                 )
                 generate_btn = gr.Button("⚡ Generate & Simulate", variant="primary", size="lg")
 
+        # ── Multi-Module Input ────────────────────────────────────────────────
+        with gr.Accordion("🏗️ Multi-Module Design (Hierarchical)", open=False):
+            gr.Markdown(
+                "_Generate a **top module + submodules** (e.g. full_adder from half_adders). "
+                "The AI decomposes your design into a module hierarchy._"
+            )
+            with gr.Row():
+                mm_description = gr.Textbox(
+                    label="📝 Design Description",
+                    placeholder="e.g. Full adder built from two half adders",
+                    lines=2,
+                )
+                mm_module_name = gr.Textbox(
+                    label="Top Module Name",
+                    placeholder="full_adder",
+                    value="full_adder",
+                )
+            with gr.Row():
+                mm_inputs = gr.Textbox(
+                    label="Inputs (comma-separated)",
+                    placeholder="a, b, cin",
+                    value="a, b, cin",
+                )
+                mm_outputs = gr.Textbox(
+                    label="Outputs (comma-separated)",
+                    placeholder="sum, cout",
+                    value="sum, cout",
+                )
+                mm_submodules = gr.Textbox(
+                    label="Submodule Hint (optional)",
+                    placeholder="e.g. use half_adder as building block",
+                    value="",
+                )
+            mm_generate_btn = gr.Button("🏗️ Generate Multi-Module Design", variant="primary")
+
         # ── Example presets ───────────────────────────────────────────────────
         gr.Examples(
             examples=[
@@ -298,6 +448,12 @@ design, testbench, and simulate it — correcting bugs automatically if needed.
         generate_btn.click(
             fn=run_pipeline,
             inputs=[description, module_name, inputs_raw, outputs_raw, backend, openai_key, anthropic_key, base_url, model_name],
+            outputs=[status_md, module_out, tb_out, sim_out, wave_out, synth_out],
+        )
+
+        mm_generate_btn.click(
+            fn=run_multimodule_pipeline,
+            inputs=[mm_description, mm_module_name, mm_inputs, mm_outputs, mm_submodules, backend, openai_key, anthropic_key, base_url, model_name],
             outputs=[status_md, module_out, tb_out, sim_out, wave_out, synth_out],
         )
 

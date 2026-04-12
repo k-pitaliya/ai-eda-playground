@@ -73,6 +73,7 @@ class PipelineResult:
     corrections: list[str] = field(default_factory=list)
     vcd_content: str | None = None
     synth_result: SynthResult | None = None
+    module_files: dict[str, str] | None = None  # multi-module: name → code
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -210,4 +211,133 @@ class EDA_Pipeline:
                 corrections=corrections,
                 vcd_content=vcd_content,
                 synth_result=synth_result,
+            )
+
+    def run_multimodule(
+        self,
+        description: str,
+        module_name: str,
+        inputs: list[str],
+        outputs: list[str],
+        submodules: str = "",
+    ) -> PipelineResult:
+        """
+        Multi-module pipeline:
+        1. Generate hierarchical design (top + submodules)
+        2. Generate testbench for top module
+        3. Compile all files together and simulate
+        4. Auto-correct top module on errors (submodules stay fixed)
+        5. Synthesize all together
+        """
+        # Step 1: Generate hierarchical design
+        module_files = self.generator.generate_multimodule(
+            description=description,
+            module_name=module_name,
+            inputs=inputs,
+            outputs=outputs,
+            submodules=submodules,
+        )
+
+        # Combined code for testbench generation (top module context)
+        all_code = "\n\n".join(module_files.values())
+        top_code = module_files.get(module_name, all_code)
+
+        # Step 2: Generate testbench for the top module
+        tb_code = self.generator.generate_testbench(top_code)
+
+        # Step 3: Write all files and simulate
+        with tempfile.TemporaryDirectory(prefix="ai_eda_") as work_dir:
+            work_path = Path(work_dir)
+
+            # Write each module to its own file
+            verilog_paths = []
+            for mod_name, mod_code in module_files.items():
+                p = work_path / f"{mod_name}.v"
+                p.write_text(mod_code)
+                verilog_paths.append(str(p))
+
+            tb_path = work_path / f"tb_{module_name}.v"
+            tb_path.write_text(tb_code)
+
+            sim = Simulator(str(work_path))
+            all_files = verilog_paths + [str(tb_path)]
+            result = sim.compile_and_run(*all_files)
+
+            corrections: list[str] = []
+            correction_history: list[CorrectionRecord] = []
+            iteration = 0
+
+            # Step 4: Auto-correction loop (only fixes the top module)
+            while not result.success and iteration < self.MAX_CORRECTION_ATTEMPTS:
+                iteration += 1
+                raw_errors = result.stderr + "\n" + result.stdout
+                error_snippet = _extract_error_lines(raw_errors)
+                categories = _classify_errors(raw_errors)
+
+                history_ctx = ""
+                if correction_history:
+                    history_ctx = "\n\nPrevious correction attempts:\n" + "\n".join(
+                        f"Attempt {r.iteration} (categories: {', '.join(r.error_categories) or 'unknown'}):\n"
+                        f"Errors fixed:\n{r.error_snippet}\n"
+                        f"Diff applied:\n{r.diff}"
+                        for r in correction_history
+                    )
+
+                prev_code = top_code
+                top_code = self.generator.fix_bugs(
+                    top_code,
+                    error_snippet + history_ctx,
+                )
+
+                diff = _unified_diff(prev_code, top_code)
+                record = CorrectionRecord(
+                    iteration=iteration,
+                    error_categories=categories,
+                    error_snippet=error_snippet,
+                    diff=diff,
+                )
+                correction_history.append(record)
+                corrections.append(
+                    f"Iteration {iteration} [{', '.join(categories) or 'unknown'}]: "
+                    f"{error_snippet[:150].replace(chr(10), ' ')}"
+                )
+
+                # Update top module file and re-simulate
+                module_files[module_name] = top_code
+                top_path = work_path / f"{module_name}.v"
+                top_path.write_text(top_code)
+                result = sim.compile_and_run(*all_files)
+
+            # Read VCD
+            vcd_content = None
+            vcd_files = list(work_path.glob("*.vcd"))
+            if vcd_files:
+                try:
+                    vcd_content = vcd_files[0].read_text()
+                except OSError:
+                    pass
+
+            # Step 5: Synthesize all modules together
+            synth_result = None
+            try:
+                synth = Synthesizer(str(work_path))
+                if synth.check_installed():
+                    synth_result = synth.synthesize(
+                        *verilog_paths, top_module=module_name
+                    )
+                    if not synth_result.success:
+                        synth_result = None
+            except Exception:
+                pass
+
+            return PipelineResult(
+                module_code="\n\n".join(module_files.values()),
+                testbench_code=tb_code,
+                sim_output=result.stdout + result.stderr,
+                success=result.success,
+                iterations=iteration + 1,
+                corrections=corrections,
+                vcd_content=vcd_content,
+                synth_result=synth_result,
+                module_files=module_files,
             )

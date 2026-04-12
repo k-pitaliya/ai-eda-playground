@@ -69,6 +69,66 @@ def generate(description: str, name: str, inputs: tuple, outputs: tuple,
 
 
 @cli.command()
+@click.argument("description")
+@click.option("--name", "-n", default="top_module", help="Top-level module name")
+@click.option("--inputs", "-i", multiple=True, default=["a", "b", "cin"], help="Input ports")
+@click.option("--outputs", "-o", multiple=True, default=["sum", "cout"], help="Output ports")
+@click.option("--submodules", "-s", default="", help="Submodule guidance (e.g. 'use half_adder as building block')")
+@click.option(
+    "--backend", "-b",
+    type=click.Choice(["auto", "openai", "anthropic"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+    help="LLM backend",
+)
+@click.option("--base-url", default=None, envvar="OPENAI_BASE_URL",
+              help="Custom OpenAI-compatible API base URL")
+@click.option("--model", "-m", default=None, envvar="OPENAI_MODEL",
+              help="Model name for OpenAI backend")
+def multimodule(description: str, name: str, inputs: tuple, outputs: tuple,
+                submodules: str, backend: str, base_url: str | None, model: str | None):
+    """Generate a hierarchical multi-module Verilog design."""
+    console.print(Panel(
+        f"[bold cyan]Multi-Module Design:[/] {description}\n"
+        f"[dim]Top: {name} | Submodule hint: {submodules or '(auto)'}[/]",
+        title="AI-EDA Playground",
+    ))
+
+    pipeline = EDA_Pipeline(backend=backend, openai_base_url=base_url, openai_model=model)
+    result = pipeline.run_multimodule(
+        description=description,
+        module_name=name,
+        inputs=list(inputs),
+        outputs=list(outputs),
+        submodules=submodules,
+    )
+
+    console.print(f"\n[bold]Status:[/] {'✅ Success' if result.success else '❌ Failed'}")
+    console.print(f"[bold]Iterations:[/] {result.iterations}")
+
+    if result.corrections:
+        console.print("\n[bold yellow]Corrections applied:[/]")
+        for c in result.corrections:
+            console.print(f"  → {c}")
+
+    if result.synth_result:
+        console.print("\n[bold magenta]Synthesis Report (Yosys):[/]")
+        console.print(Panel(result.synth_result.summary(), title="Gate-Level Statistics"))
+
+    if result.module_files:
+        console.print(f"\n[bold]Modules generated: {len(result.module_files)}[/]")
+        for mod_name, mod_code in result.module_files.items():
+            console.print(f"\n[bold green]── {mod_name}.v ──[/]")
+            console.print(Syntax(mod_code, "verilog", theme="monokai"))
+    else:
+        console.print("\n[bold]Generated Code:[/]")
+        console.print(Syntax(result.module_code, "verilog", theme="monokai"))
+
+    console.print("\n[bold]Testbench:[/]")
+    console.print(Syntax(result.testbench_code, "verilog", theme="monokai"))
+
+
+@cli.command()
 @click.argument("vcd_file", type=click.Path(exists=True))
 @click.option("--cols", "-c", default=100, show_default=True, help="Terminal width for ASCII render")
 def waveform(vcd_file: str, cols: int):
