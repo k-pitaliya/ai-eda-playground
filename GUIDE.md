@@ -15,12 +15,14 @@
 7. [The Bug Correction Loop](#7-the-bug-correction-loop)
 8. [Prompt Engineering](#8-prompt-engineering)
 9. [Waveform Visualization](#9-waveform-visualization)
-10. [Web UI Architecture](#10-web-ui-architecture)
-11. [CLI Reference](#11-cli-reference)
-12. [Testing](#12-testing)
-13. [How to Build Something Like This](#13-how-to-build-something-like-this)
-14. [Troubleshooting](#14-troubleshooting)
-15. [Glossary](#15-glossary)
+10. [Yosys Synthesis Integration](#10-yosys-synthesis-integration)
+11. [Multi-Module Hierarchical Designs](#11-multi-module-hierarchical-designs)
+12. [Web UI Architecture](#12-web-ui-architecture)
+13. [CLI Reference](#13-cli-reference)
+14. [Testing](#14-testing)
+15. [How to Build Something Like This](#15-how-to-build-something-like-this)
+16. [Troubleshooting](#16-troubleshooting)
+17. [Glossary](#17-glossary)
 
 ---
 
@@ -30,10 +32,12 @@ AI-EDA Playground is an **end-to-end AI-powered Verilog design tool** that:
 
 1. Takes a **natural language description** of a digital circuit (e.g., "4-bit counter with enable")
 2. **Generates synthesizable Verilog RTL** using an LLM (GPT-4, Claude, or any OpenAI-compatible API)
-3. **Auto-generates a self-checking testbench** with clock, reset, directed tests, and assertions
-4. **Compiles and simulates** using Icarus Verilog
-5. **Automatically detects and fixes bugs** if the simulation fails (up to 3 correction cycles)
-6. **Visualizes waveforms** from VCD files (ASCII in terminal, SVG in browser)
+3. **Supports multi-module hierarchical designs** (e.g., "full adder from half adders")
+4. **Auto-generates a self-checking testbench** with clock, reset, directed tests, and assertions
+5. **Compiles and simulates** using Icarus Verilog
+6. **Automatically detects and fixes bugs** if the simulation fails (up to 3 correction cycles)
+7. **Synthesizes with Yosys** — gate counts, cell types, and netlist export
+8. **Visualizes waveforms** from VCD files (ASCII in terminal, SVG in browser)
 
 It works via both a **CLI** and a **Gradio-based Web UI**.
 
@@ -100,33 +104,35 @@ User Input (description + ports)
 ### File Structure
 
 ```
-ai-eda-playground/          (2,223 lines total)
+ai-eda-playground/
+├── .github/workflows/
+│   └── ci.yml                  CI: Python 3.11–3.13 + iverilog + yosys
 ├── src/
-│   ├── __init__.py          (0 lines)   Package marker
-│   ├── __main__.py          (4 lines)   Enables `python -m src`
-│   ├── generator.py         (512 lines) ★ Core: LLM ↔ Verilog translation
-│   ├── pipeline.py          (197 lines) ★ Orchestrator: generate → sim → fix
-│   ├── simulator.py         (116 lines) Icarus Verilog wrapper
-│   ├── waveform.py          (318 lines) VCD parsing + ASCII/SVG rendering
-│   ├── webui.py             (293 lines) Gradio browser interface
-│   ├── cli.py               (127 lines) Click command-line interface
+│   ├── __init__.py             Package marker
+│   ├── __main__.py             Enables `python -m src`
+│   ├── generator.py            ★ Core: LLM ↔ Verilog translation (640+ lines)
+│   ├── pipeline.py             ★ Orchestrator: generate → sim → fix (330+ lines)
+│   ├── simulator.py            Icarus Verilog wrapper (116 lines)
+│   ├── synthesizer.py          Yosys synthesis wrapper (273 lines)
+│   ├── waveform.py             VCD parsing + ASCII/SVG rendering (318 lines)
+│   ├── webui.py                Gradio browser interface (460+ lines)
+│   ├── cli.py                  Click command-line interface (200+ lines)
 │   └── config/
-│       └── prompts.yaml     (48 lines)  LLM prompt templates
+│       └── prompts.yaml        LLM prompt templates (65+ lines)
 ├── tests/
-│   ├── conftest.py          (124 lines) Shared test fixtures
-│   ├── test_generator.py    (116 lines) 14 unit tests
-│   ├── test_pipeline.py     (114 lines) 14 integration tests
-│   ├── test_simulator.py    (68 lines)  7 simulator tests
-│   └── test_waveform.py     (98 lines)  12 waveform tests
-├── config/
-│   └── prompts.yaml                     Copy for non-pip installs
-├── examples/
-│   └── counter.yaml                     Example module spec
-├── pyproject.toml           (63 lines)  PEP 621 project metadata
-├── requirements.txt         (8 lines)   Flat dependency list
-├── launch_ui.sh             (17 lines)  One-command Web UI launcher
-├── LICENSE                              MIT License
-└── README.md                            Project documentation
+│   ├── conftest.py             Shared test fixtures
+│   ├── test_generator.py       14 unit tests
+│   ├── test_pipeline.py        14 integration tests
+│   ├── test_simulator.py       7 simulator tests
+│   ├── test_synthesizer.py     13 synthesis tests
+│   ├── test_multimodule.py     13 multi-module tests
+│   └── test_waveform.py        12 waveform tests
+├── pyproject.toml              PEP 621 project metadata
+├── requirements.txt            Flat dependency list
+├── launch_ui.sh                One-command Web UI launcher
+├── GUIDE.md                    This file
+├── LICENSE                     MIT License
+└── README.md                   Project documentation
 ```
 
 ### Dependency Graph
@@ -136,6 +142,8 @@ cli.py ────────┐
                ├──→ pipeline.py ──→ generator.py ──→ LLM APIs / Mock
 webui.py ──────┘         │                  │
                          ├──→ simulator.py ──→ Icarus Verilog (iverilog + vvp)
+                         │
+                         ├──→ synthesizer.py ──→ Yosys
                          │
                          └──→ waveform.py ──→ vcdvcd library
 ```
@@ -159,12 +167,13 @@ webui.py ──────┘         │                  │
 |------|---------|---------|
 | `iverilog` | Verilog compiler | `brew install icarus-verilog` (macOS) |
 | `vvp` | Simulation runtime | Included with Icarus Verilog |
+| `yosys` | RTL synthesis (gate counts, netlist) | `brew install yosys` (macOS) — optional |
 
 ---
 
 ## 4. Module-by-Module Walkthrough
 
-### 4.1 generator.py — The AI Brain (512 lines)
+### 4.1 generator.py — The AI Brain (640+ lines)
 
 This is the heart of the system. It translates between natural language and Verilog using LLMs.
 
@@ -200,6 +209,12 @@ class VerilogGenerator:
 - LLM analyzes errors and returns corrected RTL
 - Returns fixed Verilog code
 
+**`generate_multimodule(description, top_name, inputs, outputs, submodule_hint="")`**
+- Generates a hierarchical design with a top module and submodules
+- Uses the `multimodule_generation` prompt template
+- Returns `dict[str, str]` mapping filenames to Verilog code
+- `_parse_multimodule()` splits the LLM response into separate modules
+
 #### LLM Dispatch
 
 ```python
@@ -231,6 +246,10 @@ def _mock_module(self, prompt):
     # Detects sequential (has clock) vs combinational modules
     # Generates appropriate always blocks or assign statements
 
+def _mock_multimodule(self, prompt):
+    # Generates a full_adder = 2 × half_adder hierarchy
+    # Returns dict[str, str] with separate files
+
 def _mock_testbench(self, prompt):
     # Detects sequential vs combinational design under test
     # Generates clock gen, reset sequence, directed tests, assertions
@@ -243,9 +262,9 @@ def _mock_bugfix(self, prompt):
 
 ---
 
-### 4.2 pipeline.py — The Orchestrator (197 lines)
+### 4.2 pipeline.py — The Orchestrator (330+ lines)
 
-Coordinates the full generate → simulate → correct workflow.
+Coordinates the full generate → simulate → correct workflow, including multi-module and synthesis.
 
 #### Dataclasses
 
@@ -266,6 +285,8 @@ class PipelineResult:
     iterations: int             # How many correction cycles
     corrections: list[str]      # Human-readable correction log
     vcd_content: str | None     # VCD waveform data (in memory)
+    synth_result: SynthResult | None  # Yosys synthesis results
+    module_files: dict | None   # Multi-module file map (name → code)
 ```
 
 #### The `run()` Method — Core Algorithm
@@ -292,7 +313,23 @@ def run(self, description, module_name, inputs, outputs):
     # 5. Capture VCD before temp dir cleanup
     vcd_content = read(vcd_file) if exists else None
 
+    # 6. Synthesize with Yosys (if available)
+    synth_result = synthesizer.synthesize(module_file) if yosys_installed else None
+
     return PipelineResult(...)
+```
+
+#### The `run_multimodule()` Method
+
+```python
+def run_multimodule(self, description, top_name, inputs, outputs, submodule_hint=""):
+    # 1. Generate all modules via generate_multimodule()
+    # 2. Write each module to a separate file
+    # 3. Generate testbench for the top module
+    # 4. Compile all files together + testbench
+    # 5. Correction loop applies fixes to top module only
+    # 6. Synthesize + capture VCD
+    return PipelineResult(module_files=file_map, ...)
 ```
 
 #### Error Analysis
@@ -392,7 +429,7 @@ count   : ╱0x0╲╱0x1╲╱0x2╲╱0x3╲╱0x4╲╱0x5╲╱0x6╲╱0x7�
 
 ---
 
-### 4.5 webui.py — Gradio Web Interface (293 lines)
+### 4.5 webui.py — Gradio Web Interface (460+ lines)
 
 Browser-based UI built with Gradio.
 
@@ -411,7 +448,11 @@ Browser-based UI built with Gradio.
 ├────────────────────────────────────────────────┤
 │ Examples: Counter │ FSM │ Flip-Flop │ Shifter  │
 ├────────────────────────────────────────────────┤
-│ Tab: Status │ Module │ Testbench │ Sim │ Wave  │
+│ Tab: Status │ Module │ TB │ Sim │ Wave │ Synth │
+├────────────────────────────────────────────────┤
+│ ▼ Multi-Module Design (accordion)              │
+│   Description, Top Name, Inputs, Outputs, Hint │
+│   [🚀 Generate Multi-Module]                   │
 ├────────────────────────────────────────────────┤
 │ ▼ VCD File Upload (standalone waveform viewer) │
 └────────────────────────────────────────────────┘
@@ -434,15 +475,17 @@ def run_pipeline(description, module_name, inputs_raw, outputs_raw,
 
 ---
 
-### 4.6 cli.py — Command-Line Interface (127 lines)
+### 4.6 cli.py — Command-Line Interface (200+ lines)
 
-Four commands built with Click + Rich:
+Six commands built with Click + Rich:
 
 | Command | Purpose |
 |---------|---------|
-| `generate` | Run the full pipeline from a description |
+| `generate` | Run the full single-module pipeline from a description |
+| `multimodule` | Generate a hierarchical multi-module design |
+| `synthesize` | Standalone Yosys synthesis on existing Verilog files |
 | `waveform` | View a VCD file as ASCII waveforms |
-| `check` | Verify tools and API keys are configured |
+| `check` | Verify tools (iverilog, Yosys) and API keys |
 | `webui` | Launch the Gradio browser interface |
 
 ---
@@ -752,7 +795,120 @@ For the Web UI. Features:
 
 ---
 
-## 10. Web UI Architecture
+## 10. Yosys Synthesis Integration
+
+### What Is Synthesis?
+
+Synthesis transforms your RTL Verilog into a **gate-level netlist** — the circuit expressed in terms of logic gates (AND, OR, NOT, flip-flops, etc.) rather than behavioral `always` blocks.
+
+### How It Works
+
+The `Synthesizer` class wraps Yosys:
+
+```python
+class Synthesizer:
+    def synthesize(self, verilog_path, top_module=None, flatten=False):
+        # 1. Runs: yosys -p "read_verilog file.v; synth -top mod; stat -json"
+        # 2. Parses the JSON stat output from stdout
+        # 3. Returns a SynthResult dataclass
+
+    def write_netlist(self, verilog_path, json_out, top_module=None, flatten=False):
+        # Same as synthesize() + writes a JSON netlist file
+```
+
+### SynthResult Dataclass
+
+```python
+@dataclass
+class SynthResult:
+    num_wires: int          # Total wire count
+    num_wire_bits: int      # Total wire bits
+    num_cells: int          # Total cell count
+    cell_types: dict        # {"$_AND_": 12, "$_NOT_": 5, "$_DFF_P_": 4}
+    raw_log: str            # Full Yosys output
+
+    @property
+    def gate_count(self):
+        # Cell count excluding $scopeinfo (not a real gate)
+        return self.num_cells - self.cell_types.get("$scopeinfo", 0)
+
+    def summary(self):
+        # Human-readable multi-line summary
+```
+
+### JSON Output
+
+Yosys outputs synthesis stats as JSON inline in stdout. The parser finds the JSON block (starts with `{`, ends with `}`) and extracts the `design` section:
+
+```json
+{
+  "design": {
+    "num_wires": 24,
+    "num_wire_bits": 38,
+    "num_cells": 16,
+    "num_cells_by_type": {
+      "$_AND_": 4,
+      "$_NOT_": 2,
+      "$_DFF_P_": 4,
+      "$_OR_": 6
+    }
+  }
+}
+```
+
+### Usage
+
+**CLI:**
+```bash
+python -m src.cli synthesize counter.v --top counter_4bit --flatten
+python -m src.cli synthesize counter.v --json-out netlist.json
+```
+
+**Pipeline:** Synthesis runs automatically at the end of `pipeline.run()` if Yosys is installed. Results appear in the `synth_result` field of `PipelineResult`.
+
+**Web UI:** The "Synthesis" tab shows gate count, cell breakdown, and wire stats after generation.
+
+---
+
+## 11. Multi-Module Hierarchical Designs
+
+### Concept
+
+Real digital designs are hierarchical. A full adder uses two half adders. An ALU uses adders, MUXes, and shifters. Multi-module support lets you generate these complete hierarchies from a single description.
+
+### How It Works
+
+1. **Prompt:** A dedicated `multimodule_generation` template in `prompts.yaml` instructs the LLM to generate multiple modules with explicit `//--- MODULE: <name> ---` markers between them.
+
+2. **Parsing:** `_parse_multimodule()` splits the response:
+   - **Primary:** Looks for `//--- MODULE: <name> ---` markers
+   - **Fallback:** Regex splits on `module <name>` declarations
+   - Returns `dict[str, str]` mapping filenames to code
+
+3. **Pipeline:** `run_multimodule()` writes each module to a separate `.v` file, generates a testbench for the top module, and compiles all files together.
+
+4. **Bug correction:** Only the top module is modified during correction loops; submodules remain unchanged.
+
+### Mock Mode
+
+Mock multi-module generates a realistic `full_adder = 2 × half_adder` hierarchy:
+- `half_adder.v`: XOR for sum, AND for carry
+- `full_adder.v`: Instantiates two half adders + OR gate for carry
+
+### Usage
+
+**CLI:**
+```bash
+python -m src.cli multimodule "Full adder from two half adders" \
+  --name full_adder -i a -i b -i cin -o sum -o cout \
+  --submodules "use half_adder as building block"
+```
+
+**Web UI:** Use the "Multi-Module Design" accordion — fill in the description, top module name, inputs, outputs, and optional submodule hint.
+
+---
+
+## 12. Web UI Architecture
 
 ### Technology: Gradio
 
@@ -797,7 +953,7 @@ btn.click(
 )
 ```
 
-One button click updates all 5 output tabs atomically.
+One button click updates all 6 output tabs atomically (including Synthesis).
 
 ### Security Considerations
 
@@ -808,7 +964,7 @@ One button click updates all 5 output tabs atomically.
 
 ---
 
-## 11. CLI Reference
+## 13. CLI Reference
 
 ### `generate` — Run the Full Pipeline
 
@@ -842,6 +998,45 @@ python -m src.cli generate "2:1 MUX" -n mux2 -i a -i b -i sel -o y \
   --backend anthropic
 ```
 
+### `multimodule` — Generate Hierarchical Design
+
+```bash
+python -m src.cli multimodule <DESCRIPTION> [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--name` | `-n` | `top_module` | Top-level module name |
+| `--inputs` | `-i` | `clk, rst_n` | Input ports (repeatable) |
+| `--outputs` | `-o` | `out` | Output ports (repeatable) |
+| `--submodules` | `-s` | | Submodule hint (e.g., "use half_adder") |
+| `--backend` | `-b` | `auto` | LLM backend |
+
+**Example:**
+```bash
+python -m src.cli multimodule "Full adder using half adders" \
+  -n full_adder -i a -i b -i cin -o sum -o cout \
+  -s "use half_adder as building block"
+```
+
+### `synthesize` — Standalone Yosys Synthesis
+
+```bash
+python -m src.cli synthesize <VERILOG_FILES>... [OPTIONS]
+```
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--top` | `-t` | auto-detected | Top-level module name |
+| `--flatten` | | false | Flatten hierarchy before reporting |
+| `--json-out` | | | Write JSON netlist to file |
+
+**Example:**
+```bash
+python -m src.cli synthesize counter.v --top counter_4bit --flatten
+python -m src.cli synthesize alu.v -t alu --json-out netlist.json
+```
+
 ### `waveform` — View VCD Files
 
 ```bash
@@ -854,7 +1049,7 @@ python -m src.cli waveform <VCD_FILE> [--cols N]
 python -m src.cli check
 ```
 
-Shows: Icarus Verilog status, API keys, base URL, model.
+Shows: Icarus Verilog status, Yosys status, API keys.
 
 ### `webui` — Launch Browser Interface
 
@@ -864,9 +1059,9 @@ python -m src.cli webui [--port 7860] [--host 127.0.0.1] [--share]
 
 ---
 
-## 12. Testing
+## 14. Testing
 
-### Test Suite (47 tests)
+### Test Suite (73 tests)
 
 ```bash
 cd ai-eda-playground
@@ -878,6 +1073,8 @@ python -m pytest tests/ -v
 | `test_generator.py` | 14 | Fence stripping, config loading, mock generation, backend resolution |
 | `test_pipeline.py` | 14 | Error classification, diff calculation, mock pipeline runs |
 | `test_simulator.py` | 7 | Compilation, simulation, temp directory cleanup |
+| `test_synthesizer.py` | 13 | Yosys synthesis, stat parsing, gate count, netlist export |
+| `test_multimodule.py` | 13 | Multi-module parsing (markers + fallback), mock hierarchical gen |
 | `test_waveform.py` | 12 | VCD parsing, ASCII rendering, SVG rendering, XSS escaping |
 
 ### Key Test Design Decisions
@@ -889,7 +1086,7 @@ python -m pytest tests/ -v
 
 ---
 
-## 13. How to Build Something Like This
+## 15. How to Build Something Like This
 
 If you want to build a similar AI-driven EDA tool from scratch, here's the step-by-step approach:
 
@@ -932,8 +1129,15 @@ If you want to build a similar AI-driven EDA tool from scratch, here's the step-
 
 21. **Add Anthropic/Claude** — second LLM backend with auto-detection
 22. **Add OpenRouter support** — custom `base_url` for any OpenAI-compatible API
-23. **Write comprehensive tests** — 40+ tests covering all components
+23. **Write comprehensive tests** — 70+ tests covering all components
 24. **Write documentation** — README, GUIDE, inline comments
+
+### Phase 7: Synthesis & Multi-Module
+
+25. **Integrate Yosys** — synthesize RTL to gate-level, parse JSON stat output
+26. **Add multi-module support** — hierarchical designs with submodule parsing
+27. **Add CI/CD** — GitHub Actions running tests on every push/PR
+28. **Update documentation** — reflect new features in README and GUIDE
 
 ### Key Lessons Learned
 
@@ -946,7 +1150,7 @@ If you want to build a similar AI-driven EDA tool from scratch, here's the step-
 
 ---
 
-## 14. Troubleshooting
+## 16. Troubleshooting
 
 ### "iverilog: command not found"
 
@@ -1004,7 +1208,7 @@ end
 
 ---
 
-## 15. Glossary
+## 17. Glossary
 
 | Term | Definition |
 |------|-----------|
@@ -1017,14 +1221,20 @@ end
 | **Icarus Verilog** | Open-source Verilog compiler and simulator |
 | **iverilog** | Icarus Verilog compiler command |
 | **vvp** | Icarus Verilog simulation runtime |
+| **Yosys** | Open-source synthesis framework for Verilog |
+| **Synthesis** | Converting RTL to gate-level netlist (AND, OR, flip-flops) |
+| **Netlist** | Circuit described as interconnected gates/cells |
+| **Gate count** | Number of logic cells after synthesis |
 | **Mock mode** | Offline mode that generates Verilog without API calls |
 | **NBA** | Non-Blocking Assignment (`<=`) — used in sequential logic |
 | **Synthesizable** | Code that can be converted to actual hardware gates |
 | **Combinational** | Logic without memory/state (e.g., AND gate) |
 | **Sequential** | Logic with memory/state, driven by a clock (e.g., counter) |
 | **Bus** | Multi-bit signal (e.g., `count[3:0]` is a 4-bit bus) |
+| **Hierarchy** | Module instantiation structure (top module → submodules) |
 | **Gradio** | Python library for building web UIs for ML/AI tools |
 | **OpenRouter** | API gateway for multiple LLM providers |
+| **CI/CD** | Continuous Integration / Continuous Deployment |
 
 ---
 
