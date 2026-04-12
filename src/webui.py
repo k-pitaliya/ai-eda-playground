@@ -32,14 +32,15 @@ def run_pipeline(
     anthropic_key: str,
     base_url: str = "",
     model_name: str = "",
-) -> tuple[str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str]:
     """
     Run the full generate→simulate→correct pipeline.
-    Returns: (status_md, module_verilog, testbench_verilog, sim_output, waveform_svg)
+    Returns: (status_md, module_verilog, testbench_verilog, sim_output, waveform_svg, synth_md)
     """
     no_wave = "<p><em>No waveform — run a simulation first.</em></p>"
+    no_synth = "_No synthesis data — Yosys may not be installed._"
     if not description.strip():
-        return "⚠️ Please enter a module description.", "", "", "", no_wave
+        return "⚠️ Please enter a module description.", "", "", "", no_wave, no_synth
 
     # Pass API keys directly to the pipeline (no os.environ mutation)
     oai_key = openai_key.strip() or None
@@ -66,7 +67,7 @@ def run_pipeline(
             outputs=outputs,
         )
     except Exception as e:
-        return f"❌ Pipeline error: {e}", "", "", "", no_wave
+        return f"❌ Pipeline error: {e}", "", "", "", no_wave, no_synth
 
     # Build status markdown
     status_icon = "✅ Success" if result.success else "❌ Failed"
@@ -98,12 +99,32 @@ def run_pipeline(
         except Exception as e:
             wave_html = f"<p><em>Waveform error: {e}</em></p>"
 
+    # Build synthesis markdown
+    synth_md = no_synth
+    if result.synth_result and result.synth_result.success:
+        sr = result.synth_result
+        synth_lines = [
+            f"**Top module:** `{sr.top_module or '(auto)'}`",
+            f"**Gates:** {sr.gate_count}",
+            f"**Cells:** {sr.stats.get('num_cells', 'N/A')}",
+            f"**Wires:** {sr.stats.get('num_wires', 'N/A')} ({sr.stats.get('num_wire_bits', '?')} bits)",
+            "",
+            "| Cell Type | Count |",
+            "|-----------|-------|",
+        ]
+        for ct, cnt in sorted(sr.cells_by_type.items()):
+            synth_lines.append(f"| `{ct}` | {cnt} |")
+        synth_md = "\n".join(synth_lines)
+    elif result.synth_result and not result.synth_result.success:
+        synth_md = f"_Synthesis failed:_ `{result.synth_result.stderr[:200]}`"
+
     return (
         "\n".join(lines),
         result.module_code,
         result.testbench_code,
         result.sim_output or "(no simulation output)",
         wave_html,
+        synth_md,
     )
 
 
@@ -261,6 +282,12 @@ design, testbench, and simulate it — correcting bugs automatically if needed.
                     label="VCD Waveform Viewer",
                 )
 
+            with gr.Tab("🔬 Synthesis"):
+                synth_out = gr.Markdown(
+                    value="_No synthesis data — run a generation first._",
+                    label="Gate-Level Statistics (Yosys)",
+                )
+
         # ── Waveform upload (standalone viewer) ───────────────────────────────
         with gr.Accordion("📂 Open existing VCD file", open=False):
             vcd_upload = gr.File(label="Upload .vcd file", file_types=[".vcd"])
@@ -271,7 +298,7 @@ design, testbench, and simulate it — correcting bugs automatically if needed.
         generate_btn.click(
             fn=run_pipeline,
             inputs=[description, module_name, inputs_raw, outputs_raw, backend, openai_key, anthropic_key, base_url, model_name],
-            outputs=[status_md, module_out, tb_out, sim_out, wave_out],
+            outputs=[status_md, module_out, tb_out, sim_out, wave_out, synth_out],
         )
 
     return demo

@@ -57,6 +57,10 @@ def generate(description: str, name: str, inputs: tuple, outputs: tuple,
         for c in result.corrections:
             console.print(f"  → {c}")
 
+    if result.synth_result:
+        console.print("\n[bold magenta]Synthesis Report (Yosys):[/]")
+        console.print(Panel(result.synth_result.summary(), title="Gate-Level Statistics"))
+
     console.print("\n[bold]Generated Module:[/]")
     console.print(Syntax(result.module_code, "verilog", theme="monokai"))
 
@@ -78,15 +82,49 @@ def waveform(vcd_file: str, cols: int):
 
 
 @cli.command()
+@click.argument("verilog_files", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option("--top", "-t", default=None, help="Top-level module name (auto-detected if omitted)")
+@click.option("--flatten", is_flag=True, default=False, help="Flatten hierarchy before reporting stats")
+@click.option("--json-out", default=None, type=click.Path(), help="Write gate-level JSON netlist to file")
+def synthesize(verilog_files: tuple, top: str | None, flatten: bool, json_out: str | None):
+    """Synthesize Verilog files with Yosys and show gate-level statistics."""
+    from .synthesizer import Synthesizer
+    synth = Synthesizer()
+    if not synth.check_installed():
+        console.print("[red]❌ Yosys not found — install with: brew install yosys[/]")
+        raise SystemExit(1)
+
+    if json_out:
+        result = synth.write_netlist(*verilog_files, top_module=top, output_json=json_out, flatten=flatten)
+    else:
+        result = synth.synthesize(*verilog_files, top_module=top, flatten=flatten)
+
+    if not result.success:
+        console.print(f"[red]❌ Synthesis failed:[/]\n{result.stderr}")
+        raise SystemExit(1)
+
+    console.print(Panel(result.summary(), title="🔬 Yosys Synthesis Report"))
+    if json_out:
+        console.print(f"[green]Netlist written to {json_out}[/]")
+
+
+@cli.command()
 def check():
     """Check if required tools are installed."""
     import os
     from .simulator import Simulator
+    from .synthesizer import Synthesizer
     sim = Simulator()
     if sim.check_installed():
         console.print("[green]✅ Icarus Verilog is installed[/]")
     else:
         console.print("[red]❌ Icarus Verilog not found — install with: brew install icarus-verilog[/]")
+
+    synth = Synthesizer()
+    if synth.check_installed():
+        console.print("[green]✅ Yosys is installed[/]")
+    else:
+        console.print("[yellow]⚠️  Yosys not found — install with: brew install yosys[/]")
 
     if os.getenv("OPENAI_API_KEY"):
         console.print("[green]✅ OPENAI_API_KEY is set[/]")

@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from .generator import VerilogGenerator
 from .simulator import Simulator, SimResult
+from .synthesizer import Synthesizer, SynthResult
 
 
 # ── Error classification ──────────────────────────────────────────────────────
@@ -71,6 +72,7 @@ class PipelineResult:
     iterations: int
     corrections: list[str] = field(default_factory=list)
     vcd_content: str | None = None
+    synth_result: SynthResult | None = None
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -186,6 +188,19 @@ class EDA_Pipeline:
                 except OSError:
                     pass
 
+            # Run Yosys synthesis (optional — gracefully skip if not installed)
+            synth_result = None
+            try:
+                synth = Synthesizer(str(work_path))
+                if synth.check_installed():
+                    synth_result = synth.synthesize(
+                        str(rtl_path), top_module=module_name
+                    )
+                    if not synth_result.success:
+                        synth_result = None  # don't expose failed synthesis
+            except Exception:
+                pass  # synthesis is optional
+
             return PipelineResult(
                 module_code=module_code,
                 testbench_code=tb_code,
@@ -194,4 +209,5 @@ class EDA_Pipeline:
                 iterations=iteration + 1,
                 corrections=corrections,
                 vcd_content=vcd_content,
+                synth_result=synth_result,
             )
