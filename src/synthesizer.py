@@ -94,7 +94,7 @@ class Synthesizer:
             synth_cmd += f" -top {top_module}"
         if flatten:
             synth_cmd += " -flatten"
-        script = f"{read_cmds}; {synth_cmd}; stat -json"
+        script = f"{read_cmds}; {synth_cmd}; stat; stat -json"
 
         try:
             result = subprocess.run(
@@ -157,7 +157,7 @@ class Synthesizer:
             synth_cmd += " -flatten"
 
         out_path = self.work_dir / output_json
-        script = f"{read_cmds}; {synth_cmd}; stat -json; write_json {out_path}"
+        script = f"{read_cmds}; {synth_cmd}; stat; stat -json; write_json {out_path}"
 
         try:
             result = subprocess.run(
@@ -243,7 +243,6 @@ class Synthesizer:
 
         cell_types = design.get("num_cells_by_type", {})
 
-        # Derive num_ports from module ports dict if not directly available
         num_ports = design.get("num_ports", 0)
         if num_ports == 0:
             for mod_name, mod_data in stats.get("modules", {}).items():
@@ -251,6 +250,11 @@ class Synthesizer:
                 if ports_dict:
                     num_ports = len(ports_dict)
                     break
+        if num_ports == 0:
+            import re
+            port_match = re.search(r"Number of ports:\s+(\d+)", output)
+            if port_match:
+                num_ports = int(port_match.group(1))
 
         return SynthResult(
             success=True,
