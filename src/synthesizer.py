@@ -243,6 +243,15 @@ class Synthesizer:
 
         cell_types = design.get("num_cells_by_type", {})
 
+        # Derive num_ports from module ports dict if not directly available
+        num_ports = design.get("num_ports", 0)
+        if num_ports == 0:
+            for mod_name, mod_data in stats.get("modules", {}).items():
+                ports_dict = mod_data.get("ports", {})
+                if ports_dict:
+                    num_ports = len(ports_dict)
+                    break
+
         return SynthResult(
             success=True,
             stdout=output,
@@ -250,7 +259,7 @@ class Synthesizer:
             num_wires=design.get("num_wires", 0),
             num_wire_bits=design.get("num_wire_bits", 0),
             num_cells=design.get("num_cells", 0),
-            num_ports=design.get("num_ports", 0),
+            num_ports=num_ports,
             num_port_bits=design.get("num_port_bits", 0),
             num_memories=design.get("num_memories", 0),
             num_memory_bits=design.get("num_memory_bits", 0),
